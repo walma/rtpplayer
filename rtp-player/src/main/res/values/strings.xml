@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">RTP Player</string>
+    <string name="player_title">LibVLC RTP Player</string>
+    <string name="stream_uri_hint">RTP/UDP stream URI</string>
+    <string name="play_button">Play</string>
+    <string name="stop_button">Stop</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_buffering">Buffering stream…</string>
+    <string name="status_playing">Playing</string>
+    <string name="status_error">Error: %1$s</string>
+    <string name="stream_uri_required">Enter a stream URI</string>
+</resources>
