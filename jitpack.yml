@@ -2,4 +2,4 @@ jdk:
   - openjdk17
 
 install:
-  - ./gradlew :rtp-player:publishReleasePublicationToMavenLocal
+  - ./gradlew :rtp-player:publishReleasePublicationToMavenLocal :rtp-player-ui:publishReleasePublicationToMavenLocal

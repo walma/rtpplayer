@@ -32,12 +32,19 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          POM_URL="https://jitpack.io/com/github/${REPOSITORY_OWNER}/${REPOSITORY_NAME}/${TAG}/${REPOSITORY_NAME}-${TAG}.pom"
-          for attempt in $(seq 1 20); do
-            if curl --fail --silent --show-error --location "$POM_URL" > /tmp/rtpplayer.pom; then
-              exit 0
+          MODULES=("rtp-player" "rtp-player-ui")
+          for module in "${MODULES[@]}"; do
+            POM_URL="https://jitpack.io/com/github/${REPOSITORY_OWNER}/${REPOSITORY_NAME}/${module}/${TAG}/${module}-${TAG}.pom"
+            published=false
+            for attempt in $(seq 1 20); do
+              if curl --fail --silent --show-error --location "$POM_URL" > "/tmp/${module}.pom"; then
+                published=true
+                break
+              fi
+              sleep 30
+            done
+            if [ "$published" != true ]; then
+              echo "JitPack did not publish module ${module} for tag ${TAG} in time" >&2
+              exit 1
             fi
-            sleep 30
           done
-          echo "JitPack did not publish ${TAG} in time" >&2
-          exit 1
