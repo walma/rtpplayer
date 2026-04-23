@@ -23,8 +23,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Start
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.StopCircle
+import androidx.compose.material.icons.sharp.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -278,6 +287,15 @@ private fun RtpPlayerContent(
         videoSurface(Modifier.fillMaxSize())
 
         if (!isInPipMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), MaterialTheme.shapes.small)
+                    .padding(8.dp),
+            ) {
+                Text("Cam1", color = Color.White)
+            }
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -302,6 +320,7 @@ private fun RtpPlayerContent(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp),
+                horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 IconButton(
@@ -315,27 +334,44 @@ private fun RtpPlayerContent(
                 }
 
                 if (playerState.isPlaying) {
-                    Button(onClick = onEnterPip) { Text("PiP") }
+                    IconButton(
+                        onClick = onEnterPip,
+                        modifier = Modifier.background(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                            MaterialTheme.shapes.medium,
+                        ),
+                    ) {
+                        Icon(Icons.Default.PictureInPictureAlt, contentDescription = null)
+                    }
                 }
 
                 if (playerState.isPlaying || playerState.isBuffering) {
-                    Button(
+                    IconButton(
                         onClick = onStop,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.background(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                            MaterialTheme.shapes.medium,
                         ),
                     ) {
-                        Text("Stop")
+                        Icon(Icons.Default.Stop, contentDescription = null)
                     }
+
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onPlay) { Text("Play") }
-                        Button(
-                            onClick = onRecord,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
-                        ) {
-                            Text("REC")
-                        }
+                    IconButton(
+                        onClick = onPlay,
+                        modifier = Modifier.background(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                            MaterialTheme.shapes.medium,
+                        ),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    }
+                    Button(
+                        onClick = onRecord,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
+                    ) {
+                        Text("REC")
                     }
                 }
             }
@@ -457,6 +493,7 @@ private fun SettingsDialog(
                 )
                 Button(
                     onClick = onDismiss,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.align(Alignment.End),
                 ) {
                     Text("Done")
@@ -478,7 +515,7 @@ private fun statusText(state: PlayerState): String = when {
 private fun PreviewRtpPlayerContent() {
     RtpPlayerTheme {
         RtpPlayerContent(
-            playerState = PlayerState(isPlaying = true),
+            playerState = PlayerState(isRecording = true),
             isInPipMode = false,
             streamUri = DEFAULT_STREAM_URI,
             onStreamUriChange = {},
