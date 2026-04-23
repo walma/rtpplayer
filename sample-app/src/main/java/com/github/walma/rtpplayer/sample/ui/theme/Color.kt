@@ -1,4 +1,4 @@
-package com.github.walma.rtpplayer.ui.theme
+package com.github.walma.rtpplayer.sample.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

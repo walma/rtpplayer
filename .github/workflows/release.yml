@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag
+
+  warm_jitpack:
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger JitPack build for release tag
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          POM_URL="https://jitpack.io/com/github/${REPOSITORY_OWNER}/${REPOSITORY_NAME}/${TAG}/${REPOSITORY_NAME}-${TAG}.pom"
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error --location "$POM_URL" > /tmp/rtpplayer.pom; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "JitPack did not publish ${TAG} in time" >&2
+          exit 1

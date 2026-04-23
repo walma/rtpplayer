@@ -16,3 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "rtp-player"
 include(":rtp-player")
+
+if (System.getenv("JITPACK") != "true") {
+    include(":sample-app")
+}
