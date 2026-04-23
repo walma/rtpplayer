@@ -1,6 +1,7 @@
 package com.github.walma.rtpplayer
 
 import android.app.PictureInPictureParams
+import android.content.Intent
 import android.content.res.Configuration
 import android.media.MediaScannerConnection
 import android.os.Build
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val initialRecordFileName = intent.getStringExtra(EXTRA_RECORD_FILE_NAME)
         setContent {
             RtpPlayerTheme {
                 Surface(
@@ -49,7 +51,8 @@ class MainActivity : ComponentActivity() {
                     RtpPlayerScreen(
                         onPlayerCreated = { playerInstance = it },
                         isInPipMode = isInPipMode,
-                        onEnterPip = { enterPipMode() }
+                        onEnterPip = { enterPipMode() },
+                        initialRecordFileName = initialRecordFileName
                     )
                 }
             }
@@ -76,6 +79,10 @@ class MainActivity : ComponentActivity() {
             enterPipMode()
         }
     }
+
+    companion object {
+        const val EXTRA_RECORD_FILE_NAME = "extra_record_file_name"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,7 +90,8 @@ class MainActivity : ComponentActivity() {
 private fun RtpPlayerScreen(
     onPlayerCreated: (RtpVlcPlayer) -> Unit,
     isInPipMode: Boolean,
-    onEnterPip: () -> Unit
+    onEnterPip: () -> Unit,
+    initialRecordFileName: String? = null
 ) {
     val context = LocalContext.current
     var playerState by remember { mutableStateOf(PlayerState()) }
@@ -225,8 +233,12 @@ private fun RtpPlayerScreen(
                             onClick = {
                                 val uri = streamUri.trim()
                                 if (uri.isNotBlank()) {
-                                    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                                    val fileName = "RTP_Player_$timeStamp.mp4"
+                                    val fileName = if (!initialRecordFileName.isNullOrBlank()) {
+                                        if (initialRecordFileName.endsWith(".mp4")) initialRecordFileName else "$initialRecordFileName.mp4"
+                                    } else {
+                                        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                        "RTP_Player_$timeStamp.mp4"
+                                    }
                                     
                                     // Используем публичную папку Downloads
                                     val storageDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
