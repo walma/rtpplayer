@@ -1,3 +1,5 @@
+[![](https://jitpack.io/v/walma/rtpplayer.svg)](https://jitpack.io/#walma/rtpplayer)
+
 # RTP Player
 
 Минимальный Android-проект на Kotlin с использованием `LibVLC` для воспроизведения RTP/UDP-потоков в реальном времени.
