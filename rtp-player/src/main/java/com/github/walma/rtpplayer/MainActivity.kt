@@ -25,7 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -94,6 +96,8 @@ private fun RtpPlayerScreen(
     initialRecordFileName: String? = null
 ) {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
+    
     var playerState by remember { mutableStateOf(PlayerState()) }
     var streamUri by rememberSaveable { mutableStateOf(DEFAULT_STREAM_URI) }
     
@@ -106,17 +110,19 @@ private fun RtpPlayerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     val player = remember {
-        RtpVlcPlayer(
-            context = context.applicationContext,
-            onStateChanged = { playerState = it }
-        ).also { onPlayerCreated(it) }
+        if (isPreview) null else {
+            RtpVlcPlayer(
+                context = context.applicationContext,
+                onStateChanged = { playerState = it }
+            ).also { onPlayerCreated(it) }
+        }
     }
 
     // Единая точка обработки завершения записи (и по кнопке STOP, и при обрыве)
     var wasRecording by remember { mutableStateOf(false) }
     LaunchedEffect(playerState.isRecording) {
         if (wasRecording && !playerState.isRecording) {
-            player.currentRecordPath?.let { path ->
+            player?.currentRecordPath?.let { path ->
                 // Ждем 1 секунду, чтобы VLC закрыл файл корректно
                 kotlinx.coroutines.delay(1000)
                 MediaScannerConnection.scanFile(context, arrayOf(path), null) { scannedPath, _ ->
@@ -129,7 +135,7 @@ private fun RtpPlayerScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { player.release() }
+        onDispose { player?.release() }
     }
 
     // Слушатель ошибок для уведомлений
@@ -152,10 +158,10 @@ private fun RtpPlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { androidContext ->
                 SurfaceView(androidContext).also { surfaceView ->
-                    player.setSurfaceView(surfaceView)
+                    player?.setSurfaceView(surfaceView)
                 }
             },
-            onRelease = { player.setSurfaceView(null) }
+            onRelease = { player?.setSurfaceView(null) }
         )
 
         if (!isInPipMode) {
@@ -200,8 +206,8 @@ private fun RtpPlayerScreen(
                 if (playerState.isPlaying || playerState.isBuffering) {
                     Button(
                         onClick = { 
-                            val path = player.currentRecordPath
-                            player.stop()
+                            val path = player?.currentRecordPath
+                            player?.stop()
                             if (path != null) {
                                 MediaScannerConnection.scanFile(context, arrayOf(path), null) { _, _ -> }
                                 Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
@@ -215,7 +221,7 @@ private fun RtpPlayerScreen(
                             onClick = {
                                 val uri = streamUri.trim()
                                 if (uri.isNotBlank()) {
-                                    player.play(
+                                    player?.play(
                                         uri = uri,
                                         settings = PlayerSettings(
                                             networkCaching = networkCaching.toIntOrNull() ?: 500,
@@ -245,7 +251,7 @@ private fun RtpPlayerScreen(
                                     if (!storageDir.exists()) storageDir.mkdirs()
                                     val file = File(storageDir, fileName)
                                     
-                                    player.play(
+                                    player?.play(
                                         uri = uri,
                                         settings = PlayerSettings(
                                             networkCaching = networkCaching.toIntOrNull() ?: 500,
@@ -371,6 +377,19 @@ private fun statusText(state: PlayerState): String {
         state.isPlaying -> "Playing"
         state.isBuffering -> "Buffering..."
         else -> "Idle"
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun PreviewRtpPlayerScreen() {
+    RtpPlayerTheme {
+        RtpPlayerScreen(
+            onPlayerCreated = {},
+            isInPipMode = false,
+            onEnterPip = {},
+            initialRecordFileName = null
+        )
     }
 }
 
