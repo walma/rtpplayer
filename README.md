@@ -64,6 +64,10 @@ dependencies {
 
 `rtp-player-ui` транзитивно подтянет `rtp-player`.
 
+Если вы наследуетесь от `RtpPlayerActivity` в своем приложении и хотите использовать PiP, добавьте
+`android:supportsPictureInPicture="true"` именно в manifest-описание вашего activity-класса.
+Android проверяет поддержку PiP у фактически запущенного `Activity`, а не у базового класса из библиотеки.
+
 ## Релизы
 
 В репозитории добавлен workflow `.github/workflows/release.yml`:
@@ -100,4 +104,3 @@ install:
 ```
 
 Это важно для текущего стека (`AGP 8.5.2`, `Kotlin 2.0.21`), потому что JitPack по умолчанию стартует не с той Java, которая нужна проекту.
-

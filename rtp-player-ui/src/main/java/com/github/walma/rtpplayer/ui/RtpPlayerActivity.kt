@@ -1,6 +1,7 @@
 package com.github.walma.rtpplayer.ui
 
 import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
@@ -80,12 +81,29 @@ open class RtpPlayerActivity : ComponentActivity() {
     }
 
     private fun enterPipModeCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(16, 9))
-                .build()
-            enterPictureInPictureMode(params)
+        if (supportsPictureInPictureCompat()) {
+            try {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+                enterPictureInPictureMode(params)
+            } catch (_: IllegalStateException) {
+                // The concrete activity may still be rejected by the framework; ignore and stay fullscreen.
+            }
         }
+    }
+
+    private fun supportsPictureInPictureCompat(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return false
+        }
+
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            return false
+        }
+
+        val activityInfo = packageManager.getActivityInfo(componentName, 0)
+        return activityInfo.flags and SUPPORTS_PICTURE_IN_PICTURE_FLAG != 0
     }
 
     override fun onPictureInPictureModeChanged(
@@ -98,10 +116,13 @@ open class RtpPlayerActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        enterPipModeCompat()
+        if (!isInPipMode) {
+            enterPipModeCompat()
+        }
     }
 
     companion object {
+        private const val SUPPORTS_PICTURE_IN_PICTURE_FLAG = 0x00400000
         const val EXTRA_RECORD_FILE_NAME = "extra_record_file_name"
         const val EXTRA_TOP_START_TEXT = "extra_top_start_text"
         const val EXTRA_BOTTOM_START_TEXT = "extra_bottom_start_text"
