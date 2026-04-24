@@ -1,9 +1,11 @@
 package com.github.walma.rtpplayer.ui
 
 import android.media.MediaScannerConnection
-import android.os.Environment
+import android.net.Uri
 import android.view.SurfaceView
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +69,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 enum class RtpPlayerControlsStyle {
     Icons,
@@ -104,6 +108,28 @@ fun RtpPlayerScreen(
     var clockJitter by rememberSaveable { mutableStateOf(initialClockJitter) }
     var clockSynchro by rememberSaveable { mutableStateOf(initialClockSynchro) }
     var selectedDemux by rememberSaveable { mutableStateOf(initialDemux) }
+    var recordingsFolderUri by rememberSaveable { mutableStateOf(RecordingStorage.getSelectedFolderUri(context)) }
+    var pendingRecording by remember { mutableStateOf<PendingRecording?>(null) }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) {
+            return@rememberLauncherForActivityResult
+        }
+
+        runCatching {
+            RecordingStorage.persistSelectedFolder(context, uri)
+        }.onSuccess {
+            recordingsFolderUri = uri
+        }.onFailure {
+            Toast.makeText(
+                context,
+                it.message ?: "Failed to access selected folder",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
 
     val player = remember {
         if (isPreview) {
@@ -119,10 +145,45 @@ fun RtpPlayerScreen(
     var wasRecording by remember { mutableStateOf(false) }
     LaunchedEffect(playerState.isRecording) {
         if (wasRecording && !playerState.isRecording) {
-            player?.currentRecordPath?.let { path ->
+            pendingRecording?.let { recording ->
                 delay(1000)
-                MediaScannerConnection.scanFile(context, arrayOf(path), null) { _, _ -> }
-                Toast.makeText(context, "Recording saved", Toast.LENGTH_LONG).show()
+                val saveResult = withContext(Dispatchers.IO) {
+                    RecordingStorage.saveRecording(
+                        context = context,
+                        sourceFile = recording.tempFile,
+                        fileName = recording.fileName,
+                        destinationFolderUri = recording.destinationFolderUri,
+                    )
+                }
+
+                when (saveResult) {
+                    is SaveResult.FilePath -> {
+                        MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(saveResult.file.absolutePath),
+                            null,
+                        ) { _, _ -> }
+                        Toast.makeText(
+                            context,
+                            "Recording saved: ${saveResult.file.name}",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+
+                    is SaveResult.Document -> {
+                        Toast.makeText(context, "Recording saved", Toast.LENGTH_LONG).show()
+                    }
+
+                    is SaveResult.Error -> {
+                        Toast.makeText(
+                            context,
+                            saveResult.message,
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+
+                pendingRecording = null
             }
         }
         wasRecording = playerState.isRecording
@@ -160,12 +221,13 @@ fun RtpPlayerScreen(
         onStop = { player?.stop() },
         onRecord = {
             val fileName = resolveRecordFileName(initialRecordFileName)
-            val storageDir =
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!storageDir.exists()) {
-                storageDir.mkdirs()
-            }
+            val storageDir = RecordingStorage.defaultRecordingDirectory(context)
             val file = File(storageDir, fileName)
+            pendingRecording = PendingRecording(
+                tempFile = file,
+                fileName = fileName,
+                destinationFolderUri = recordingsFolderUri,
+            )
 
             player?.play(
                 uri = streamUri.trim(),
@@ -180,6 +242,14 @@ fun RtpPlayerScreen(
         },
         onEnterPip = onEnterPip,
         uiConfig = uiConfig,
+        recordingsFolderLabel = RecordingStorage.folderLabel(context, recordingsFolderUri),
+        onSelectRecordingsFolder = {
+            folderPickerLauncher.launch(recordingsFolderUri)
+        },
+        onResetRecordingsFolder = {
+            RecordingStorage.clearSelectedFolder(context)
+            recordingsFolderUri = null
+        },
         topStartContent = topStartContent,
         bottomStartContent = bottomStartContent,
         videoSurface = { surfaceModifier ->
@@ -222,6 +292,9 @@ private fun RtpPlayerContent(
     onRecord: () -> Unit,
     onEnterPip: () -> Unit,
     uiConfig: RtpPlayerUiConfig,
+    recordingsFolderLabel: String,
+    onSelectRecordingsFolder: () -> Unit,
+    onResetRecordingsFolder: () -> Unit,
     topStartContent: (@Composable BoxScope.() -> Unit)?,
     bottomStartContent: (@Composable BoxScope.(PlayerState) -> Unit)?,
     videoSurface: @Composable (Modifier) -> Unit,
@@ -297,6 +370,9 @@ private fun RtpPlayerContent(
                 onClockSynchroChange = onClockSynchroChange,
                 selectedDemux = selectedDemux,
                 onDemuxChange = onDemuxChange,
+                recordingsFolderLabel = recordingsFolderLabel,
+                onSelectRecordingsFolder = onSelectRecordingsFolder,
+                onResetRecordingsFolder = onResetRecordingsFolder,
                 onDismiss = { showSettingsDialog = false },
             )
         }
@@ -469,6 +545,9 @@ private fun SettingsDialog(
     onClockSynchroChange: (String) -> Unit,
     selectedDemux: String,
     onDemuxChange: (String) -> Unit,
+    recordingsFolderLabel: String,
+    onSelectRecordingsFolder: () -> Unit,
+    onResetRecordingsFolder: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -543,6 +622,27 @@ private fun SettingsDialog(
                     label = { Text("Clock Synchro") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = recordingsFolderLabel,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Recordings Folder") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onSelectRecordingsFolder,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Choose Folder")
+                    }
+                    OutlinedButton(
+                        onClick = onResetRecordingsFolder,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Default Folder")
+                    }
+                }
                 Button(
                     onClick = onDismiss,
                     shape = RoundedCornerShape(12.dp),
@@ -587,3 +687,9 @@ private fun PreviewRtpPlayerContent() {
 }
 
 private const val DEFAULT_STREAM_URI = "udp://@:5004"
+
+private data class PendingRecording(
+    val tempFile: File,
+    val fileName: String,
+    val destinationFolderUri: Uri?,
+)
