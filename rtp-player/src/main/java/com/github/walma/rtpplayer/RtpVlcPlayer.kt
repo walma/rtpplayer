@@ -36,6 +36,7 @@ class RtpVlcPlayer(
     private var isPlayingActive = false
     private var currentSettings = PlayerSettings()
     private var boundSurfaceView: SurfaceView? = null
+    private var attachedSurfaceHolder: SurfaceHolder? = null
     private var areViewsAttached = false
     var currentRecordPath: String? = null
         private set
@@ -59,9 +60,8 @@ class RtpVlcPlayer(
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
-            if (areViewsAttached) {
-                mediaPlayer.vlcVout.detachViews()
-                areViewsAttached = false
+            if (attachedSurfaceHolder === holder) {
+                attachedSurfaceHolder = null
             }
         }
     }
@@ -75,9 +75,8 @@ class RtpVlcPlayer(
         if (boundSurfaceView === surfaceView) return
 
         boundSurfaceView?.holder?.removeCallback(surfaceCallback)
-        if (areViewsAttached) {
-            mediaPlayer.vlcVout.detachViews()
-            areViewsAttached = false
+        if (surfaceView == null) {
+            detachVideoOutput()
         }
 
         boundSurfaceView = surfaceView
@@ -170,10 +169,7 @@ class RtpVlcPlayer(
         boundSurfaceView = null
         stop()
         mediaPlayer.setEventListener(null)
-        if (areViewsAttached) {
-            mediaPlayer.vlcVout.detachViews()
-            areViewsAttached = false
-        }
+        detachVideoOutput()
         mediaPlayer.release()
         libVlc.release()
     }
@@ -228,14 +224,27 @@ class RtpVlcPlayer(
 
     private fun attachVideoOutput(holder: SurfaceHolder) {
         val vout = mediaPlayer.vlcVout
+        if (areViewsAttached && attachedSurfaceHolder !== holder) {
+            vout.detachViews()
+            areViewsAttached = false
+        }
         vout.setVideoSurface(holder.surface, holder)
         if (!areViewsAttached) {
             vout.attachViews()
             areViewsAttached = true
         }
+        attachedSurfaceHolder = holder
         val frame = holder.surfaceFrame
         if (!frame.isEmpty) {
             vout.setWindowSize(frame.width(), frame.height())
+        }
+    }
+
+    private fun detachVideoOutput() {
+        attachedSurfaceHolder = null
+        if (areViewsAttached) {
+            mediaPlayer.vlcVout.detachViews()
+            areViewsAttached = false
         }
     }
 
