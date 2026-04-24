@@ -13,35 +13,30 @@ internal object RecordingStorage {
     private const val PREFS_NAME = "rtp_player_ui_prefs"
     private const val KEY_RECORDINGS_FOLDER_URI = "recordings_folder_uri"
 
-    fun getSelectedFolderUri(context: Context): Uri? {
+    fun getLegacySelectedFolderUri(context: Context): Uri? {
         val value = context
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_RECORDINGS_FOLDER_URI, null)
         return value?.let(Uri::parse)
     }
 
-    fun persistSelectedFolder(context: Context, uri: Uri) {
+    fun takePersistablePermission(context: Context, uri: Uri) {
         context.contentResolver.takePersistableUriPermission(
             uri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
         )
-        context
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_RECORDINGS_FOLDER_URI, uri.toString())
-            .apply()
     }
 
-    fun clearSelectedFolder(context: Context) {
-        getSelectedFolderUri(context)?.let { uri ->
-            runCatching {
-                context.contentResolver.releasePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                )
-            }
+    fun releasePersistablePermission(context: Context, uri: Uri) {
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
         }
+    }
 
+    fun clearLegacySelectedFolder(context: Context) {
         context
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()

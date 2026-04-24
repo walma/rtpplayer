@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,7 +101,26 @@ fun RtpPlayerScreen(
     bottomStartContent: (@Composable BoxScope.(PlayerState) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val appContext = context.applicationContext
     val isPreview = LocalInspectionMode.current
+    val settingsStore = remember(appContext) { PlayerSettingsStore(appContext) }
+    val defaultSettings = remember(
+        initialStreamUri,
+        initialNetworkCaching,
+        initialClockJitter,
+        initialClockSynchro,
+        initialDemux,
+    ) {
+        PersistedPlayerSettings(
+            streamUri = initialStreamUri,
+            networkCaching = initialNetworkCaching,
+            clockJitter = initialClockJitter,
+            clockSynchro = initialClockSynchro,
+            demux = initialDemux,
+            recordingsFolderUri = null,
+        )
+    }
+    val persistedSettings by settingsStore.settingsFlow(defaultSettings).collectAsState(initial = null)
 
     var playerState by remember { mutableStateOf(PlayerState()) }
     var streamUri by rememberSaveable { mutableStateOf(initialStreamUri) }
@@ -108,8 +128,53 @@ fun RtpPlayerScreen(
     var clockJitter by rememberSaveable { mutableStateOf(initialClockJitter) }
     var clockSynchro by rememberSaveable { mutableStateOf(initialClockSynchro) }
     var selectedDemux by rememberSaveable { mutableStateOf(initialDemux) }
-    var recordingsFolderUri by rememberSaveable { mutableStateOf(RecordingStorage.getSelectedFolderUri(context)) }
+    var recordingsFolderUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var pendingRecording by remember { mutableStateOf<PendingRecording?>(null) }
+    var hasHydratedSettings by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(settingsStore) {
+        settingsStore.migrateLegacyRecordingFolderIfNeeded()
+    }
+
+    LaunchedEffect(persistedSettings) {
+        val settings = persistedSettings ?: return@LaunchedEffect
+        if (hasHydratedSettings) {
+            return@LaunchedEffect
+        }
+
+        streamUri = settings.streamUri
+        networkCaching = settings.networkCaching
+        clockJitter = settings.clockJitter
+        clockSynchro = settings.clockSynchro
+        selectedDemux = settings.demux
+        recordingsFolderUri = settings.recordingsFolderUri
+        hasHydratedSettings = true
+    }
+
+    LaunchedEffect(
+        hasHydratedSettings,
+        streamUri,
+        networkCaching,
+        clockJitter,
+        clockSynchro,
+        selectedDemux,
+        recordingsFolderUri,
+    ) {
+        if (!hasHydratedSettings) {
+            return@LaunchedEffect
+        }
+
+        settingsStore.save(
+            PersistedPlayerSettings(
+                streamUri = streamUri,
+                networkCaching = networkCaching,
+                clockJitter = clockJitter,
+                clockSynchro = clockSynchro,
+                demux = selectedDemux,
+                recordingsFolderUri = recordingsFolderUri,
+            ),
+        )
+    }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -119,7 +184,7 @@ fun RtpPlayerScreen(
         }
 
         runCatching {
-            RecordingStorage.persistSelectedFolder(context, uri)
+            RecordingStorage.takePersistablePermission(context, uri)
         }.onSuccess {
             recordingsFolderUri = uri
         }.onFailure {
@@ -247,7 +312,7 @@ fun RtpPlayerScreen(
             folderPickerLauncher.launch(recordingsFolderUri)
         },
         onResetRecordingsFolder = {
-            RecordingStorage.clearSelectedFolder(context)
+            recordingsFolderUri?.let { RecordingStorage.releasePersistablePermission(context, it) }
             recordingsFolderUri = null
         },
         topStartContent = topStartContent,
