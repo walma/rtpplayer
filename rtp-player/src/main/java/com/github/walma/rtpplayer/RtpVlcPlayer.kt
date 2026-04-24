@@ -61,7 +61,7 @@ class RtpVlcPlayer(
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             if (attachedSurfaceHolder === holder) {
-                attachedSurfaceHolder = null
+                detachVideoOutput()
             }
         }
     }
