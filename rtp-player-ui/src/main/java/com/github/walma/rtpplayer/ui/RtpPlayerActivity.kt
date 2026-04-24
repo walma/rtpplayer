@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.github.walma.rtpplayer.PlayerState
@@ -22,7 +25,7 @@ import com.github.walma.rtpplayer.ui.theme.RtpPlayerTheme
 
 open class RtpPlayerActivity : ComponentActivity() {
 
-    private var isInPipMode = false
+    private var isInPipMode by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

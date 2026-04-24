@@ -18,7 +18,6 @@ class RtpVlcPlayer(
     private val libVlc = LibVLC(context, VLC_OPTIONS)
     private val mediaPlayer = MediaPlayer(libVlc)
     private val mainHandler = Handler(Looper.getMainLooper())
-    
     private val watchdogHandler = Handler(Looper.getMainLooper())
     private val watchdogRunnable = Runnable {
         if (isPlayingActive) {
@@ -34,28 +33,36 @@ class RtpVlcPlayer(
 
     private var isReleased = false
     private var lastUri: String? = null
-    private var isPlayingActive = false 
+    private var isPlayingActive = false
     private var currentSettings = PlayerSettings()
+    private var boundSurfaceView: SurfaceView? = null
+    private var areViewsAttached = false
     var currentRecordPath: String? = null
         private set
 
     private val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
-            val vout = mediaPlayer.vlcVout
-            vout.setVideoSurface(holder.surface, holder)
-            vout.attachViews()
+            attachVideoOutput(holder)
             if (isPlayingActive) {
-                lastUri?.let { internalPlay(it, currentSettings) }
+                if (!mediaPlayer.isPlaying) {
+                    lastUri?.let { internalPlay(it, currentSettings) }
+                } else {
+                    mediaPlayer.vlcVout.setWindowSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
+                }
             }
         }
+
         override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {
-            mediaPlayer.vlcVout.setWindowSize(w, h)
-        }
-        override fun surfaceDestroyed(holder: SurfaceHolder) {
-            if (isPlayingActive) {
-                mediaPlayer.stop()
+            if (areViewsAttached) {
+                mediaPlayer.vlcVout.setWindowSize(w, h)
             }
-            mediaPlayer.vlcVout.detachViews()
+        }
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+            if (areViewsAttached) {
+                mediaPlayer.vlcVout.detachViews()
+                areViewsAttached = false
+            }
         }
     }
 
@@ -65,12 +72,18 @@ class RtpVlcPlayer(
 
     fun setSurfaceView(surfaceView: SurfaceView?) {
         if (isReleased) return
-        mediaPlayer.vlcVout.detachViews()
-        if (surfaceView != null) {
-            surfaceView.holder.addCallback(surfaceCallback)
-            if (surfaceView.holder.surface?.isValid == true) {
-                surfaceCallback.surfaceCreated(surfaceView.holder)
-            }
+        if (boundSurfaceView === surfaceView) return
+
+        boundSurfaceView?.holder?.removeCallback(surfaceCallback)
+        if (areViewsAttached) {
+            mediaPlayer.vlcVout.detachViews()
+            areViewsAttached = false
+        }
+
+        boundSurfaceView = surfaceView
+        surfaceView?.holder?.addCallback(surfaceCallback)
+        if (surfaceView?.holder?.surface?.isValid == true) {
+            surfaceCallback.surfaceCreated(surfaceView.holder)
         }
     }
 
@@ -80,7 +93,7 @@ class RtpVlcPlayer(
         lastUri = uri
         currentSettings = settings
         this.currentRecordPath = recordPath
-        
+
         resetWatchdog(15000L)
         internalPlay(uri, settings)
     }
@@ -101,7 +114,7 @@ class RtpVlcPlayer(
                 addOption(":network-caching=${settings.networkCaching}")
                 addOption(":clock-jitter=${settings.clockJitter}")
                 addOption(":clock-synchro=${settings.clockSynchro}")
-                
+
                 addOption(":rtp-timeout=5")
                 addOption(":udp-timeout=5")
 
@@ -118,9 +131,9 @@ class RtpVlcPlayer(
             mediaPlayer.play()
             mediaPlayer.scale = 0f
             mediaPlayer.aspectRatio = null
-            
+
             dispatchState(PlayerState(
-                isBuffering = true, 
+                isBuffering = true,
                 isRecording = currentRecordPath != null,
                 debugMessage = "Connecting..."
             ))
@@ -130,7 +143,7 @@ class RtpVlcPlayer(
     }
 
     fun stop() {
-        val wasRecordingActive = currentRecordPath != null // Проверяем, была ли активна запись
+        val wasRecordingActive = currentRecordPath != null
         isPlayingActive = false
         watchdogHandler.removeCallbacks(watchdogRunnable)
         if (isReleased) return
@@ -153,9 +166,14 @@ class RtpVlcPlayer(
     fun release() {
         if (isReleased) return
         isReleased = true
+        boundSurfaceView?.holder?.removeCallback(surfaceCallback)
+        boundSurfaceView = null
         stop()
         mediaPlayer.setEventListener(null)
-        mediaPlayer.vlcVout.detachViews()
+        if (areViewsAttached) {
+            mediaPlayer.vlcVout.detachViews()
+            areViewsAttached = false
+        }
         mediaPlayer.release()
         libVlc.release()
     }
@@ -164,15 +182,15 @@ class RtpVlcPlayer(
         if (isReleased) return
         when (event.type) {
             MediaPlayer.Event.TimeChanged -> {
-                resetWatchdog(10000L) 
+                resetWatchdog(10000L)
             }
             MediaPlayer.Event.Buffering -> {
                 val p = event.buffering.toInt()
-                if (p > 0) resetWatchdog(10000L) 
-                
+                if (p > 0) resetWatchdog(10000L)
+
                 dispatchState(PlayerState(
-                    isBuffering = p < 100, 
-                    isPlaying = p >= 100, 
+                    isBuffering = p < 100,
+                    isPlaying = p >= 100,
                     isRecording = currentRecordPath != null,
                     debugMessage = "Buffering $p%"
                 ))
@@ -180,7 +198,7 @@ class RtpVlcPlayer(
             MediaPlayer.Event.Playing -> {
                 resetWatchdog(10000L)
                 dispatchState(PlayerState(
-                    isPlaying = true, 
+                    isPlaying = true,
                     isRecording = currentRecordPath != null,
                     debugMessage = "Active"
                 ))
@@ -188,7 +206,7 @@ class RtpVlcPlayer(
             MediaPlayer.Event.EncounteredError -> {
                 watchdogHandler.removeCallbacks(watchdogRunnable)
                 dispatchState(PlayerState(errorMessage = "Stream lost", isRecording = false))
-                stop() 
+                stop()
             }
             MediaPlayer.Event.EndReached -> {
                 watchdogHandler.removeCallbacks(watchdogRunnable)
@@ -208,10 +226,22 @@ class RtpVlcPlayer(
         if (!isReleased) mainHandler.post { onStateChanged(state) }
     }
 
+    private fun attachVideoOutput(holder: SurfaceHolder) {
+        val vout = mediaPlayer.vlcVout
+        vout.setVideoSurface(holder.surface, holder)
+        if (!areViewsAttached) {
+            vout.attachViews()
+            areViewsAttached = true
+        }
+        val frame = holder.surfaceFrame
+        if (!frame.isEmpty) {
+            vout.setWindowSize(frame.width(), frame.height())
+        }
+    }
+
     companion object {
         private val VLC_OPTIONS = arrayListOf(
-            "--ipv4", 
-            "--aout=opensles", 
+            "--aout=opensles",
             "--no-stats",
             "--drop-late-frames",
             "--skip-frames"
