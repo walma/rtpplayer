@@ -80,19 +80,19 @@ open class RtpPlayerActivity : ComponentActivity() {
     }
 
     fun updatePlaybackState(isPlaying: Boolean) {
-        val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_STOPPED
-        val actions = if (isPlaying) {
-            PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP
-        } else {
-            PlaybackStateCompat.ACTION_PLAY
+        _currentPlayingState = isPlaying
+        if (mediaSessionCompat?.isActive == true) {
+            val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_STOPPED
+            val playbackState = PlaybackStateCompat.Builder()
+                .setState(state, 0, 1.0f)
+                .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP)
+                .build()
+            mediaSessionCompat?.setPlaybackState(playbackState)
+            Log.d(TAG, "PlaybackState updated: isPlaying=$isPlaying")
         }
-        val playbackState = PlaybackStateCompat.Builder()
-            .setState(state, 0, 1.0f)
-            .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP)
-            .build()
-        mediaSessionCompat?.setPlaybackState(playbackState)
-        Log.d(TAG, "PlaybackState updated: isPlaying=$isPlaying")
     }
+
+    private var _currentPlayingState = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -190,6 +190,8 @@ open class RtpPlayerActivity : ComponentActivity() {
         if (isInPictureInPictureMode) {
             mediaSessionCompat?.isActive = true
             Log.d(TAG, "MediaSessionCompat activated")
+            // Immediately update playback state
+            updatePlaybackState(_currentPlayingState)
         } else {
             mediaSessionCompat?.isActive = false
             Log.d(TAG, "MediaSessionCompat deactivated")

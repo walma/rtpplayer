@@ -301,8 +301,14 @@ fun RtpPlayerScreen(
         wasRecording = playerState.isRecording
     }
 
-    DisposableEffect(Unit) {
-        onDispose { player?.release() }
+    DisposableEffect(isInPipMode) {
+        Log.d("RtpPlayerScreen", "DisposableEffect: isInPipMode=$isInPipMode")
+        onDispose {
+            Log.d("RtpPlayerScreen", "DisposableEffect onDispose: isInPipMode=$isInPipMode")
+            if (!isInPipMode) {
+                player?.release()
+            }
+        }
     }
 
     RtpPlayerContent(
