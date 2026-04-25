@@ -66,15 +66,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import com.github.walma.rtpplayer.PlayerSettings
 import com.github.walma.rtpplayer.PlayerState
-import com.github.walma.rtpplayer.RtpVlcPlayer
 import com.github.walma.rtpplayer.ui.theme.RtpPlayerDefaults
 import com.github.walma.rtpplayer.ui.theme.RtpPlayerTheme
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 enum class RtpPlayerControlsStyle {
@@ -90,7 +89,8 @@ data class RtpPlayerUiConfig(
 )
 
 @Composable
-fun RtpPlayerScreen(
+internal fun RtpPlayerScreen(
+    viewModel: RtpPlayerViewModel,
     modifier: Modifier = Modifier,
     isInPipMode: Boolean,
     onEnterPip: () -> Unit,
@@ -125,8 +125,9 @@ fun RtpPlayerScreen(
         )
     }
     val persistedSettings by settingsStore.settingsFlow(defaultSettings).collectAsState(initial = null)
+    val playerState by viewModel.playerState.collectAsState()
+    val player = viewModel.player
 
-    var playerState by remember { mutableStateOf(PlayerState()) }
     var streamUri by rememberSaveable { mutableStateOf(initialStreamUri) }
     var networkCaching by rememberSaveable { mutableStateOf(initialNetworkCaching) }
     var clockJitter by rememberSaveable { mutableStateOf(initialClockJitter) }
@@ -142,9 +143,7 @@ fun RtpPlayerScreen(
 
     LaunchedEffect(persistedSettings) {
         val settings = persistedSettings ?: return@LaunchedEffect
-        if (hasHydratedSettings) {
-            return@LaunchedEffect
-        }
+        if (hasHydratedSettings) return@LaunchedEffect
 
         streamUri = settings.streamUri
         networkCaching = settings.networkCaching
@@ -164,10 +163,7 @@ fun RtpPlayerScreen(
         selectedDemux,
         recordingsFolderUri,
     ) {
-        if (!hasHydratedSettings) {
-            return@LaunchedEffect
-        }
-
+        if (!hasHydratedSettings) return@LaunchedEffect
         settingsStore.save(
             PersistedPlayerSettings(
                 streamUri = streamUri,
@@ -183,74 +179,37 @@ fun RtpPlayerScreen(
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
-        if (uri == null) {
-            return@rememberLauncherForActivityResult
-        }
-
+        if (uri == null) return@rememberLauncherForActivityResult
         runCatching {
             RecordingStorage.takePersistablePermission(context, uri)
         }.onSuccess {
             recordingsFolderUri = uri
         }.onFailure {
-            Toast.makeText(
-                context,
-                it.message ?: "Failed to access selected folder",
-                Toast.LENGTH_LONG,
-            ).show()
+            Toast.makeText(context, it.message ?: "Failed to access selected folder", Toast.LENGTH_LONG).show()
         }
     }
 
-    val player = remember {
-        if (isPreview) {
-            null
-        } else {
-            RtpVlcPlayer(
-                context = context.applicationContext,
-                onStateChanged = { playerState = it },
-            )
-        }
-    }
+    fun currentPlayerSettings() = PlayerSettings(
+        networkCaching = networkCaching.toIntOrNull() ?: 500,
+        clockJitter = clockJitter.toIntOrNull() ?: 0,
+        clockSynchro = clockSynchro.toIntOrNull() ?: 0,
+        demux = selectedDemux,
+    )
 
-    // Connect player to PiP MediaSession callback
-    DisposableEffect(player) {
-        if (player != null) {
-            val activity = context.findActivity() as? RtpPlayerActivity
-            if (activity != null) {
-                activity.setPiPMediaCallback(object : RtpPlayerActivity.PiPMediaCallback {
-                    override fun onPlayRequested() {
-                        player.play(
-                            uri = streamUri.trim(),
-                            settings = PlayerSettings(
-                                networkCaching = networkCaching.toIntOrNull() ?: 500,
-                                clockJitter = clockJitter.toIntOrNull() ?: 0,
-                                clockSynchro = clockSynchro.toIntOrNull() ?: 0,
-                                demux = selectedDemux,
-                            ),
-                        )
-                    }
-
-                    override fun onPauseRequested() {
-                        player.stop()
-                    }
-
-                    override fun onStopRequested() {
-                        player.stop()
-                    }
-                })
+    // Wire PiP callback so Activity can trigger play/stop from RemoteAction
+    DisposableEffect(Unit) {
+        val activity = context.findActivity() as? RtpPlayerActivity
+        activity?.setPiPMediaCallback(object : RtpPlayerActivity.PiPMediaCallback {
+            override fun onPlayRequested() {
+                player.play(uri = streamUri.trim(), settings = currentPlayerSettings())
             }
-        }
-        onDispose {
-            val activity = context.findActivity() as? RtpPlayerActivity
-            activity?.setPiPMediaCallback(null)
-        }
-    }
 
-    // Update playback state for PiP media controls
-    LaunchedEffect(playerState.isPlaying, isInPipMode) {
-        Log.d("RtpPlayerScreen", "LaunchedEffect: isPlaying=${playerState.isPlaying}, isInPipMode=$isInPipMode")
-        if (isInPipMode) {
-            val activity = context.findActivity() as? RtpPlayerActivity
-            activity?.updatePlaybackState(playerState.isPlaying)
+            override fun onPauseRequested() { player.stop() }
+            override fun onStopRequested() { player.stop() }
+        })
+        onDispose {
+            val act = context.findActivity() as? RtpPlayerActivity
+            act?.setPiPMediaCallback(null)
         }
     }
 
@@ -267,65 +226,18 @@ fun RtpPlayerScreen(
                         destinationFolderUri = recording.destinationFolderUri,
                     )
                 }
-
                 when (saveResult) {
                     is SaveResult.FilePath -> {
-                        MediaScannerConnection.scanFile(
-                            context,
-                            arrayOf(saveResult.file.absolutePath),
-                            null,
-                        ) { _, _ -> }
-                        Toast.makeText(
-                            context,
-                            "Recording saved: ${saveResult.file.name}",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        MediaScannerConnection.scanFile(context, arrayOf(saveResult.file.absolutePath), null) { _, _ -> }
+                        Toast.makeText(context, "Recording saved: ${saveResult.file.name}", Toast.LENGTH_LONG).show()
                     }
-
-                    is SaveResult.Document -> {
-                        Toast.makeText(context, "Recording saved", Toast.LENGTH_LONG).show()
-                    }
-
-                    is SaveResult.Error -> {
-                        Toast.makeText(
-                            context,
-                            saveResult.message,
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
+                    is SaveResult.Document -> Toast.makeText(context, "Recording saved", Toast.LENGTH_LONG).show()
+                    is SaveResult.Error -> Toast.makeText(context, saveResult.message, Toast.LENGTH_LONG).show()
                 }
-
                 pendingRecording = null
             }
         }
         wasRecording = playerState.isRecording
-    }
-
-    DisposableEffect(player) {
-        Log.d("RtpPlayerScreen", "DisposableEffect(player) created")
-        onDispose {
-            // Don't release player here - it will be handled by Activity lifecycle
-            Log.d("RtpPlayerScreen", "DisposableEffect(player) disposed, isInPipMode=$isInPipMode")
-        }
-    }
-
-    // Manage player release based on PiP mode and activity lifecycle
-    DisposableEffect(isInPipMode) {
-        Log.d("RtpPlayerScreen", "DisposableEffect(isInPipMode) isInPipMode=$isInPipMode")
-        onDispose {
-            Log.d("RtpPlayerScreen", "DisposableEffect(isInPipMode) disposed, isInPipMode=$isInPipMode")
-            // Don't release player here - will be handled by activity lifecycle
-        }
-    }
-
-    // Watch for activity destroy
-    DisposableEffect(Unit) {
-        onDispose {
-            Log.d("RtpPlayerScreen", "DisposableEffect(Unit) disposed - activity might be destroyed")
-            // Only release if not in PiP mode
-            // Since we can't know if activity is being destroyed or recreated for PiP,
-            // we'll rely on the activity to manage player lifecycle
-        }
     }
 
     RtpPlayerContent(
@@ -342,18 +254,8 @@ fun RtpPlayerScreen(
         onClockSynchroChange = { clockSynchro = it },
         selectedDemux = selectedDemux,
         onDemuxChange = { selectedDemux = it },
-        onPlay = {
-            player?.play(
-                uri = streamUri.trim(),
-                settings = PlayerSettings(
-                    networkCaching = networkCaching.toIntOrNull() ?: 500,
-                    clockJitter = clockJitter.toIntOrNull() ?: 0,
-                    clockSynchro = clockSynchro.toIntOrNull() ?: 0,
-                    demux = selectedDemux,
-                ),
-            )
-        },
-        onStop = { player?.stop() },
+        onPlay = { player.play(uri = streamUri.trim(), settings = currentPlayerSettings()) },
+        onStop = { player.stop() },
         onRecord = {
             val fileName = resolveRecordFileName(initialRecordFileName)
             val storageDir = RecordingStorage.defaultRecordingDirectory(context)
@@ -363,24 +265,16 @@ fun RtpPlayerScreen(
                 fileName = fileName,
                 destinationFolderUri = recordingsFolderUri,
             )
-
-            player?.play(
+            player.play(
                 uri = streamUri.trim(),
-                settings = PlayerSettings(
-                    networkCaching = networkCaching.toIntOrNull() ?: 500,
-                    clockJitter = clockJitter.toIntOrNull() ?: 0,
-                    clockSynchro = clockSynchro.toIntOrNull() ?: 0,
-                    demux = selectedDemux,
-                ),
+                settings = currentPlayerSettings(),
                 recordPath = file.absolutePath,
             )
         },
         onEnterPip = onEnterPip,
         uiConfig = uiConfig,
         recordingsFolderLabel = RecordingStorage.folderLabel(context, recordingsFolderUri),
-        onSelectRecordingsFolder = {
-            folderPickerLauncher.launch(recordingsFolderUri)
-        },
+        onSelectRecordingsFolder = { folderPickerLauncher.launch(recordingsFolderUri) },
         onResetRecordingsFolder = {
             recordingsFolderUri?.let { RecordingStorage.releasePersistablePermission(context, it) }
             recordingsFolderUri = null
@@ -398,8 +292,8 @@ fun RtpPlayerScreen(
             } else {
                 AndroidView(
                     modifier = surfaceModifier,
-                    factory = { ctx -> SurfaceView(ctx).also { player?.setSurfaceView(it) } },
-                    onRelease = { player?.setSurfaceView(null) },
+                    factory = { ctx -> SurfaceView(ctx).also { player.setSurfaceView(it) } },
+                    onRelease = { player.setSurfaceView(null) },
                 )
             }
         },
@@ -452,9 +346,7 @@ private fun RtpPlayerContent(
         if (!isInPipMode) {
             if (topStartContent != null) {
                 Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(16.dp),
+                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
                     content = topStartContent,
                 )
             } else {
@@ -462,18 +354,11 @@ private fun RtpPlayerContent(
             }
 
             if (bottomStartContent != null) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp),
-                ) {
+                Box(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                     bottomStartContent(playerState)
                 }
             } else {
-                DefaultBottomStartOverlay(
-                    playerState = playerState,
-                    statusPrefixText = uiConfig.statusPrefixText,
-                )
+                DefaultBottomStartOverlay(playerState = playerState, statusPrefixText = uiConfig.statusPrefixText)
             }
 
             ControlsColumn(
@@ -488,10 +373,7 @@ private fun RtpPlayerContent(
             )
         }
 
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+        SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
 
         if (showSettingsDialog) {
             SettingsDialog(
@@ -549,11 +431,7 @@ private fun BoxScope.DefaultBottomStartOverlay(
             Text(text = text, color = Color.White)
             if (playerState.isRecording) {
                 Spacer(Modifier.width(8.dp))
-                Box(
-                    Modifier
-                        .size(8.dp)
-                        .background(Color.Red, MaterialTheme.shapes.extraSmall),
-                )
+                Box(Modifier.size(8.dp).background(Color.Red, MaterialTheme.shapes.extraSmall))
             }
         }
     }
@@ -571,68 +449,28 @@ private fun BoxScope.ControlsColumn(
     onRecord: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .align(Alignment.TopEnd)
-            .padding(16.dp),
+        modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PlayerActionButton(
-            style = controlsStyle,
-            label = "Settings",
-            icon = {
-                Icon(Icons.Default.Settings, contentDescription = null)
-            },
-            onClick = onSettings,
-        )
+        PlayerActionButton(style = controlsStyle, label = "Settings", icon = { Icon(Icons.Default.Settings, contentDescription = null) }, onClick = onSettings)
 
         if (playerState.isPlaying) {
-            PlayerActionButton(
-                style = controlsStyle,
-                label = "PiP",
-                icon = {
-                    Icon(Icons.Default.PictureInPictureAlt, contentDescription = null)
-                },
-                onClick = onEnterPip,
-            )
+            PlayerActionButton(style = controlsStyle, label = "PiP", icon = { Icon(Icons.Default.PictureInPictureAlt, contentDescription = null) }, onClick = onEnterPip)
         }
 
         if (playerState.isPlaying || playerState.isBuffering) {
-            PlayerActionButton(
-                style = controlsStyle,
-                label = "Stop",
-                icon = {
-                    Icon(Icons.Default.Stop, contentDescription = null)
-                },
-                onClick = onStop,
-            )
+            PlayerActionButton(style = controlsStyle, label = "Stop", icon = { Icon(Icons.Default.Stop, contentDescription = null) }, onClick = onStop)
         } else {
-            PlayerActionButton(
-                style = controlsStyle,
-                label = "Play",
-                icon = {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                },
-                onClick = onPlay,
-            )
+            PlayerActionButton(style = controlsStyle, label = "Play", icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) }, onClick = onPlay)
 
             if (showRecordButton) {
-                if (controlsStyle == RtpPlayerControlsStyle.Text) {
-                    Button(
-                        onClick = onRecord,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
-                    ) {
-                        Text("Record")
-                    }
-                } else {
-                    Button(
-                        onClick = onRecord,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
-                    ) {
-                        Text("REC")
-                    }
+                Button(
+                    onClick = onRecord,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
+                ) {
+                    Text(if (controlsStyle == RtpPlayerControlsStyle.Text) "Record" else "REC")
                 }
             }
         }
@@ -647,23 +485,11 @@ private fun PlayerActionButton(
     onClick: () -> Unit,
 ) {
     when (style) {
-        RtpPlayerControlsStyle.Icons -> {
-            IconButton(
-                onClick = onClick,
-                modifier = Modifier.background(
-                    MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                    MaterialTheme.shapes.medium,
-                ),
-            ) {
-                icon()
-            }
-        }
-
-        RtpPlayerControlsStyle.Text -> {
-            OutlinedButton(onClick = onClick) {
-                Text(label)
-            }
-        }
+        RtpPlayerControlsStyle.Icons -> IconButton(
+            onClick = onClick,
+            modifier = Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), MaterialTheme.shapes.medium),
+        ) { icon() }
+        RtpPlayerControlsStyle.Text -> OutlinedButton(onClick = onClick) { Text(label) }
     }
 }
 
@@ -686,105 +512,39 @@ private fun SettingsDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = MaterialTheme.shapes.large,
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        Card(modifier = Modifier.fillMaxWidth().padding(16.dp), shape = MaterialTheme.shapes.large) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Stream Settings", style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(
-                    value = streamUri,
-                    onValueChange = onStreamUriChange,
-                    label = { Text("Stream URI") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                OutlinedTextField(value = streamUri, onValueChange = onStreamUriChange, label = { Text("Stream URI") }, modifier = Modifier.fillMaxWidth())
 
                 var expanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = !expanded },
-                ) {
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
                     OutlinedTextField(
                         value = selectedDemux,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Demuxer") },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                        },
-                        modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
                     )
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                    ) {
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         listOf("auto", "ts", "h264", "avcodec").forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option) },
-                                onClick = {
-                                    onDemuxChange(option)
-                                    expanded = false
-                                },
-                            )
+                            DropdownMenuItem(text = { Text(option) }, onClick = { onDemuxChange(option); expanded = false })
                         }
                     }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = networkCaching,
-                        onValueChange = onNetworkCachingChange,
-                        label = { Text("Cache") },
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = clockJitter,
-                        onValueChange = onClockJitterChange,
-                        label = { Text("Jitter") },
-                        modifier = Modifier.weight(1f),
-                    )
+                    OutlinedTextField(value = networkCaching, onValueChange = onNetworkCachingChange, label = { Text("Cache") }, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = clockJitter, onValueChange = onClockJitterChange, label = { Text("Jitter") }, modifier = Modifier.weight(1f))
                 }
-                OutlinedTextField(
-                    value = clockSynchro,
-                    onValueChange = onClockSynchroChange,
-                    label = { Text("Clock Synchro") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = recordingsFolderLabel,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Recordings Folder") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                OutlinedTextField(value = clockSynchro, onValueChange = onClockSynchroChange, label = { Text("Clock Synchro") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = recordingsFolderLabel, onValueChange = {}, readOnly = true, label = { Text("Recordings Folder") }, modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = onSelectRecordingsFolder,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Choose Folder")
-                    }
-                    OutlinedButton(
-                        onClick = onResetRecordingsFolder,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Default Folder")
-                    }
+                    OutlinedButton(onClick = onSelectRecordingsFolder, modifier = Modifier.weight(1f)) { Text("Choose Folder") }
+                    OutlinedButton(onClick = onResetRecordingsFolder, modifier = Modifier.weight(1f)) { Text("Default Folder") }
                 }
-                Button(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.align(Alignment.End),
-                ) {
-                    Text("Done")
-                }
+                Button(onClick = onDismiss, shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.End)) { Text("Done") }
             }
         }
     }
@@ -792,11 +552,7 @@ private fun SettingsDialog(
 
 private fun resolveRecordFileName(initialRecordFileName: String?): String {
     return if (!initialRecordFileName.isNullOrBlank()) {
-        if (initialRecordFileName.endsWith(".mp4")) {
-            initialRecordFileName
-        } else {
-            "$initialRecordFileName.mp4"
-        }
+        if (initialRecordFileName.endsWith(".mp4")) initialRecordFileName else "$initialRecordFileName.mp4"
     } else {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         "RTP_Player_$timeStamp.mp4"
@@ -814,9 +570,35 @@ private fun statusText(state: PlayerState): String = when {
 @Composable
 private fun PreviewRtpPlayerContent() {
     RtpPlayerTheme(colors = RtpPlayerDefaults.colors()) {
-        RtpPlayerScreen(
+        RtpPlayerContent(
+            modifier = Modifier,
+            playerState = PlayerState(),
             isInPipMode = false,
+            streamUri = DEFAULT_STREAM_URI,
+            onStreamUriChange = {},
+            networkCaching = "500",
+            onNetworkCachingChange = {},
+            clockJitter = "0",
+            onClockJitterChange = {},
+            clockSynchro = "0",
+            onClockSynchroChange = {},
+            selectedDemux = "ts",
+            onDemuxChange = {},
+            onPlay = {},
+            onStop = {},
+            onRecord = {},
             onEnterPip = {},
+            uiConfig = RtpPlayerUiConfig(),
+            recordingsFolderLabel = "",
+            onSelectRecordingsFolder = {},
+            onResetRecordingsFolder = {},
+            topStartContent = null,
+            bottomStartContent = null,
+            videoSurface = { mod ->
+                Box(modifier = mod.background(Color.DarkGray), contentAlignment = Alignment.Center) {
+                    Text("Video Surface", color = Color.LightGray)
+                }
+            },
         )
     }
 }
