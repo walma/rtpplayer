@@ -1,9 +1,13 @@
 package com.github.walma.rtpplayer.ui
 
+import android.content.Context
+import android.content.ContextWrapper
 import android.media.MediaScannerConnection
 import android.net.Uri
+import android.util.Log
 import android.view.SurfaceView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -204,6 +208,49 @@ fun RtpPlayerScreen(
                 context = context.applicationContext,
                 onStateChanged = { playerState = it },
             )
+        }
+    }
+
+    // Connect player to PiP MediaSession callback
+    DisposableEffect(player) {
+        if (player != null) {
+            val activity = context.findActivity() as? RtpPlayerActivity
+            if (activity != null) {
+                activity.setPiPMediaCallback(object : RtpPlayerActivity.PiPMediaCallback {
+                    override fun onPlayRequested() {
+                        player.play(
+                            uri = streamUri.trim(),
+                            settings = PlayerSettings(
+                                networkCaching = networkCaching.toIntOrNull() ?: 500,
+                                clockJitter = clockJitter.toIntOrNull() ?: 0,
+                                clockSynchro = clockSynchro.toIntOrNull() ?: 0,
+                                demux = selectedDemux,
+                            ),
+                        )
+                    }
+
+                    override fun onPauseRequested() {
+                        player.stop()
+                    }
+
+                    override fun onStopRequested() {
+                        player.stop()
+                    }
+                })
+            }
+        }
+        onDispose {
+            val activity = context.findActivity() as? RtpPlayerActivity
+            activity?.setPiPMediaCallback(null)
+        }
+    }
+
+    // Update playback state for PiP media controls
+    LaunchedEffect(playerState.isPlaying, isInPipMode) {
+        Log.d("RtpPlayerScreen", "LaunchedEffect: isPlaying=${playerState.isPlaying}, isInPipMode=$isInPipMode")
+        if (isInPipMode) {
+            val activity = context.findActivity() as? RtpPlayerActivity
+            activity?.updatePlaybackState(playerState.isPlaying)
         }
     }
 
@@ -758,3 +805,12 @@ private data class PendingRecording(
     val fileName: String,
     val destinationFolderUri: Uri?,
 )
+
+private fun Context.findActivity(): ComponentActivity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is ComponentActivity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}

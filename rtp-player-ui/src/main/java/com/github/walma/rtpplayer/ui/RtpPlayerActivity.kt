@@ -1,15 +1,19 @@
 package com.github.walma.rtpplayer.ui
 
 import android.app.PictureInPictureParams
+import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.os.PersistableBundle
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
+import android.util.Log
 import android.util.Rational
 import androidx.activity.ComponentActivity
-import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,29 +32,71 @@ import com.github.walma.rtpplayer.ui.theme.RtpPlayerTheme
 open class RtpPlayerActivity : ComponentActivity() {
 
     private var isInPipMode by mutableStateOf(false)
+    private var mediaSessionCompat: MediaSessionCompat? = null
+    private var pipCallback: PiPMediaCallback? = null
 
-    override fun onDestroy() {
-        Log.d(TAG, "onDestroy called")
-        super.onDestroy()
+    interface PiPMediaCallback {
+        fun onPlayRequested()
+        fun onPauseRequested()
+        fun onStopRequested()
     }
 
-    override fun onDetachedFromWindow() {
-        Log.d(TAG, "onDetachedFromWindow called")
-        super.onDetachedFromWindow()
+    fun setPiPMediaCallback(callback: PiPMediaCallback?) {
+        pipCallback = callback
     }
 
-    override fun onRestart() {
-        Log.d(TAG, "onRestart called")
-        super.onRestart()
+    private fun initMediaSession() {
+        mediaSessionCompat = MediaSessionCompat(this, "RtpPlayer").apply {
+            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlay() {
+                    Log.d(TAG, "MediaSessionCompat: onPlay")
+                    pipCallback?.onPlayRequested()
+                }
+
+                override fun onPause() {
+                    Log.d(TAG, "MediaSessionCompat: onPause")
+                    pipCallback?.onPauseRequested()
+                }
+
+                override fun onStop() {
+                    Log.d(TAG, "MediaSessionCompat: onStop")
+                    pipCallback?.onStopRequested()
+                }
+            })
+            // Set empty metadata so system recognizes session
+            val metadata = MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, "RTP Player")
+                .build()
+            setMetadata(metadata)
+        }
+        Log.d(TAG, "MediaSessionCompat initialized")
     }
 
-    override fun onRestoreInstanceState(savedInstanceState: Bundle?, persistentState: PersistableBundle?) {
-        Log.d(TAG, "onRestoreInstanceState called")
-        super.onRestoreInstanceState(savedInstanceState, persistentState)
+    private fun releaseMediaSession() {
+        mediaSessionCompat?.release()
+        mediaSessionCompat = null
+        Log.d(TAG, "MediaSessionCompat released")
+    }
+
+    fun updatePlaybackState(isPlaying: Boolean) {
+        val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_STOPPED
+        val actions = if (isPlaying) {
+            PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP
+        } else {
+            PlaybackStateCompat.ACTION_PLAY
+        }
+        val playbackState = PlaybackStateCompat.Builder()
+            .setState(state, 0, 1.0f)
+            .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP)
+            .build()
+        mediaSessionCompat?.setPlaybackState(playbackState)
+        Log.d(TAG, "PlaybackState updated: isPlaying=$isPlaying")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initMediaSession()
 
         setContent {
             RtpPlayerTheme(colors = provideThemeColors()) {
@@ -140,6 +186,14 @@ open class RtpPlayerActivity : ComponentActivity() {
         Log.d(TAG, "onPictureInPictureModeChanged: isInPiP=$isInPictureInPictureMode")
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         isInPipMode = isInPictureInPictureMode
+
+        if (isInPictureInPictureMode) {
+            mediaSessionCompat?.isActive = true
+            Log.d(TAG, "MediaSessionCompat activated")
+        } else {
+            mediaSessionCompat?.isActive = false
+            Log.d(TAG, "MediaSessionCompat deactivated")
+        }
     }
 
     override fun onUserLeaveHint() {
@@ -168,6 +222,27 @@ open class RtpPlayerActivity : ComponentActivity() {
     override fun onStart() {
         Log.d(TAG, "onStart called")
         super.onStart()
+    }
+
+    override fun onDestroy() {
+        Log.d(TAG, "onDestroy called")
+        releaseMediaSession()
+        super.onDestroy()
+    }
+
+    override fun onDetachedFromWindow() {
+        Log.d(TAG, "onDetachedFromWindow called")
+        super.onDetachedFromWindow()
+    }
+
+    override fun onRestart() {
+        Log.d(TAG, "onRestart called")
+        super.onRestart()
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle?, persistentState: PersistableBundle?) {
+        Log.d(TAG, "onRestoreInstanceState called")
+        super.onRestoreInstanceState(savedInstanceState, persistentState)
     }
 
     companion object {
