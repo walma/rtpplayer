@@ -1,7 +1,6 @@
 package com.github.walma.rtpplayer.ui
 
 import android.app.PictureInPictureParams
-import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.content.res.Configuration
@@ -96,7 +95,17 @@ open class RtpPlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            isInPipMode = isInPictureInPictureMode
+        }
+        
         initMediaSession()
+        
+        if (isInPipMode) {
+            mediaSessionCompat?.isActive = true
+            Log.d(TAG, "MediaSessionCompat activated in onCreate (PiP mode detected)")
+        }
 
         setContent {
             RtpPlayerTheme(colors = provideThemeColors()) {

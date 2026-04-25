@@ -301,13 +301,30 @@ fun RtpPlayerScreen(
         wasRecording = playerState.isRecording
     }
 
-    DisposableEffect(isInPipMode) {
-        Log.d("RtpPlayerScreen", "DisposableEffect: isInPipMode=$isInPipMode")
+    DisposableEffect(player) {
+        Log.d("RtpPlayerScreen", "DisposableEffect(player) created")
         onDispose {
-            Log.d("RtpPlayerScreen", "DisposableEffect onDispose: isInPipMode=$isInPipMode")
-            if (!isInPipMode) {
-                player?.release()
-            }
+            // Don't release player here - it will be handled by Activity lifecycle
+            Log.d("RtpPlayerScreen", "DisposableEffect(player) disposed, isInPipMode=$isInPipMode")
+        }
+    }
+
+    // Manage player release based on PiP mode and activity lifecycle
+    DisposableEffect(isInPipMode) {
+        Log.d("RtpPlayerScreen", "DisposableEffect(isInPipMode) isInPipMode=$isInPipMode")
+        onDispose {
+            Log.d("RtpPlayerScreen", "DisposableEffect(isInPipMode) disposed, isInPipMode=$isInPipMode")
+            // Don't release player here - will be handled by activity lifecycle
+        }
+    }
+
+    // Watch for activity destroy
+    DisposableEffect(Unit) {
+        onDispose {
+            Log.d("RtpPlayerScreen", "DisposableEffect(Unit) disposed - activity might be destroyed")
+            // Only release if not in PiP mode
+            // Since we can't know if activity is being destroyed or recreated for PiP,
+            // we'll rely on the activity to manage player lifecycle
         }
     }
 
