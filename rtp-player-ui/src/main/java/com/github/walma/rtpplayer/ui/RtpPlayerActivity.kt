@@ -6,8 +6,10 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.os.PersistableBundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +28,26 @@ import com.github.walma.rtpplayer.ui.theme.RtpPlayerTheme
 open class RtpPlayerActivity : ComponentActivity() {
 
     private var isInPipMode by mutableStateOf(false)
+
+    override fun onDestroy() {
+        Log.d(TAG, "onDestroy called")
+        super.onDestroy()
+    }
+
+    override fun onDetachedFromWindow() {
+        Log.d(TAG, "onDetachedFromWindow called")
+        super.onDetachedFromWindow()
+    }
+
+    override fun onRestart() {
+        Log.d(TAG, "onRestart called")
+        super.onRestart()
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle?, persistentState: PersistableBundle?) {
+        Log.d(TAG, "onRestoreInstanceState called")
+        super.onRestoreInstanceState(savedInstanceState, persistentState)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,14 +106,16 @@ open class RtpPlayerActivity : ComponentActivity() {
     }
 
     private fun enterPipModeCompat() {
+        Log.d(TAG, "enterPipModeCompat called")
         if (supportsPictureInPictureCompat()) {
             try {
                 val params = PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(16, 9))
                     .build()
+                Log.d(TAG, "enterPictureInPictureMode: entering PiP")
                 enterPictureInPictureMode(params)
             } catch (_: IllegalStateException) {
-                // The concrete activity may still be rejected by the framework; ignore and stay fullscreen.
+                Log.d(TAG, "enterPictureInPictureMode: IllegalStateException")
             }
         }
     }
@@ -113,18 +137,41 @@ open class RtpPlayerActivity : ComponentActivity() {
         isInPictureInPictureMode: Boolean,
         newConfig: Configuration,
     ) {
+        Log.d(TAG, "onPictureInPictureModeChanged: isInPiP=$isInPictureInPictureMode")
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         isInPipMode = isInPictureInPictureMode
     }
 
     override fun onUserLeaveHint() {
+        Log.d(TAG, "onUserLeaveHint called")
         super.onUserLeaveHint()
         if (!isInPipMode) {
             enterPipModeCompat()
         }
     }
 
+    override fun onPause() {
+        Log.d(TAG, "onPause called")
+        super.onPause()
+    }
+
+    override fun onResume() {
+        Log.d(TAG, "onResume called")
+        super.onResume()
+    }
+
+    override fun onStop() {
+        Log.d(TAG, "onStop called")
+        super.onStop()
+    }
+
+    override fun onStart() {
+        Log.d(TAG, "onStart called")
+        super.onStart()
+    }
+
     companion object {
+        private const val TAG = "RtpPlayerActivity"
         private const val SUPPORTS_PICTURE_IN_PICTURE_FLAG = 0x00400000
         const val EXTRA_RECORD_FILE_NAME = "extra_record_file_name"
         const val EXTRA_TOP_START_TEXT = "extra_top_start_text"
