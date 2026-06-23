@@ -13,6 +13,9 @@ android {
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
@@ -39,6 +42,12 @@ android {
     publishing {
         singleVariant("release") {
             withSourcesJar()
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            pickFirsts += "lib/x86/libc++_shared.so"
         }
     }
 }
